@@ -4,6 +4,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using Godot;
+using Resource;
 
 public class Chunk : INotifyChunkChanged, IEnumerable<(Vector2I Position, TileResourceId Id)>
 {

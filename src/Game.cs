@@ -10,6 +10,7 @@ using Chickensoft.AutoInject;
 using Chickensoft.Introspection;
 using Godot;
 using Microsoft.Extensions.DependencyInjection;
+using Resource;
 using Serilog;
 using Util;
 using World;
@@ -26,19 +27,24 @@ public partial class Game : Control, IProvide<IServiceProvider>
 
     public override void _Ready()
     {
+        DataGenerator.DataGenerator.Main();
+
         ServiceCollection services = new();
-        services.AddSerilog((provider, configuration) =>
+        services.AddSerilog((_, configuration) =>
             {
                 configuration.WriteTo.Console()
-                    .MinimumLevel.Information();
+                    .MinimumLevel.Debug();
             })
             .AddSingleton<Game>(this)
+            .AddSingleton<List<ResourceIdBase>>([])
+            .LoadTextures()
             .AddSingleton<TileGenerator>()
-            .AddSingleton<Map>()
             .AddKeyedSingleton<FastNoiseLite>(FastNoiseLite.NoiseTypeEnum.Perlin,
-                (_, o) => new FastNoiseLite { NoiseType = (FastNoiseLite.NoiseTypeEnum)o! });
+                (_, o) => new FastNoiseLite { NoiseType = (FastNoiseLite.NoiseTypeEnum)o! })
+            .AddTileImage()
+            .AddMap();
 
-        GenerateTileTexture(services);
+        // GenerateTileImage(services);
 
         ServiceProvider = services.BuildServiceProvider();
 
@@ -64,17 +70,41 @@ public partial class Game : Control, IProvide<IServiceProvider>
         return new Color(r, g, b);
     }
 
-    private static void GenerateTileTexture(ServiceCollection services) =>
-        ((IEnumerable<string>)["0", "1", "2", "3", "4"])
-        .Select(s => new TileResourceId(ResourceId.BUILTIN_MOD_NAME, s))
+    private static void GenerateTileImage(ServiceCollection services) =>
+        ((IEnumerable<string>) ["0", "1", "2", "3", "4"])
+        .Select(s => new TileResourceId(ResourceId.BuiltinModName, new PathString(s)))
         .ToList()
         .ForEach(id =>
         {
             var colorFromString = GetColorFromString(id.ToString());
-            services.AddKeyedSingleton<Texture2D>(id , (provider,n) =>
+            services.AddKeyedSingleton<Image>(id, (provider, n) =>
             {
                 var requiredService = provider.GetRequiredService<TileGenerator>();
-                return requiredService.GenerateTileTexture(id.ToString(), colorFromString);
+                var resourceIdList = provider.GetRequiredService<List<ResourceIdBase>>();
+
+                var generateTileTexture = requiredService.GenerateTileImage(id.ToString(), colorFromString);
+                resourceIdList.Add(id);
+
+                return generateTileTexture;
             });
         });
+
+    private static void GenerateTileSet(ServiceCollection services)
+    {
+        // TileSetAtlasSource tileSetAtlasSource = new TileSetAtlasSource();
+        // tileSetAtlasSource.Texture =
+        services.AddSingleton<TileSet>(provider =>
+        {
+            var tileSet = new TileSet();
+            var resourceIdList = provider.GetRequiredService<List<ResourceId>>();
+            resourceIdList
+                .Select(id => provider.GetRequiredKeyedService<Texture2D>(id))
+                .ToList()
+                .ForEach(texture =>
+                {
+                    TileSetAtlasSource tileSetAtlasSource = new() { Texture = texture };
+                });
+            return tileSet;
+        });
+    }
 }
